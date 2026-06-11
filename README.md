@@ -7,7 +7,7 @@ Self-hosted GitHub Actions runner base image with the full Brotal-LLC dev
 toolchain pre-installed. **Tools only — no repo caches.** Workflow-side
 caching (NuGet/npm/uv) is the consumer's responsibility.
 
-**Latest published tag:** `2026-06-11-1`  (commit `3b1764c`)
+**Latest published tag:** `2026-06-11-1`  (commit `2822363`)
 
 ## What it contains
 
