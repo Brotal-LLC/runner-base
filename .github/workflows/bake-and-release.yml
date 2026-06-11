@@ -38,23 +38,6 @@ on:
         description: "Tag suffix (e.g. 2026-06-11-1). Auto-generated to today's date + build counter if empty."
         required: false
         type: string
-      warm_ref:
-        description: "Git ref to clone for cache warming (sv/chokidar/ilma). Default HEAD of each repo's default branch."
-        required: false
-        type: string
-        default: "HEAD"
-      warm_sv:
-        description: "Warm NuGet cache for sv"
-        type: boolean
-        default: true
-      warm_chokidar:
-        description: "Warm NuGet cache for chokidar"
-        type: boolean
-        default: true
-      warm_ilma:
-        description: "Warm uv cache for ilma"
-        type: boolean
-        default: true
 
 permissions:
   contents: write   # so we can create a release notes file
@@ -131,11 +114,6 @@ jobs:
             org.opencontainers.image.created=${{ github.event.repository.updated_at }}
           cache-from: type=gha,scope=runner-base-build
           cache-to: type=gha,scope=runner-base-build,mode=max
-          build-args: |
-            WARM_REF=${{ inputs.warm_ref || 'HEAD' }}
-            WARM_SV=${{ inputs.warm_sv && '1' || '0' }}
-            WARM_CHOKIDAR=${{ inputs.warm_chokidar && '1' || '0' }}
-            WARM_ILMA=${{ inputs.warm_ilma && '1' || '0' }}
           provenance: false
           sbom: false
 
@@ -203,6 +181,5 @@ jobs:
             echo "- Image: \`ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}\`"
             echo "- Also tagged: \`latest\`"
             echo "- Platforms: linux/amd64, linux/arm64"
-            echo "- Warmed: sv=${{ inputs.warm_sv }}, chokidar=${{ inputs.warm_chokidar }}, ilma=${{ inputs.warm_ilma }}"
-            echo "- Warm ref: \`${{ inputs.warm_ref || 'HEAD' }}\`"
+            echo "- Contents: tools only (dotnet/node/python/uv/hadolint/actionlint/trufflehog/jq/psql/git), no repo caches"
           } >> "$GITHUB_STEP_SUMMARY"
