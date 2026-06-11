@@ -164,6 +164,12 @@ RUN set -eux; \
 # =============================================================================
 FROM base AS warm
 
+# Pre-create the cache dirs so COPY --from=warm in the final stage
+# doesn't fail with "<path>: not found" when the corresponding warm
+# step was skipped (WARM_*=0). This is a no-op when the dir already
+# exists.
+RUN mkdir -p /root/.nuget /root/.npm /root/.cache/uv /root/.local
+
 # Clone the three Brotal-LLC repos at HEAD, shallow, so we can warm caches
 # against their lockfiles. Skipping a repo's warm step is a build arg
 # (WARM_*); useful when one of the repos is broken on master and you still
