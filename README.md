@@ -7,7 +7,14 @@ Self-hosted GitHub Actions runner base image with the full Brotal-LLC dev
 toolchain pre-installed. **Tools only — no repo caches.** Workflow-side
 caching (NuGet/npm/uv) is the consumer's responsibility.
 
-**Latest published tag:** `2026-06-11-1`  (commit `2822363`)
+**Latest published tag:** `2026-06-11-1`  (commit `30fd270`)
+
+## Visibility
+
+**Both the repo and the GHCR image are public.** The runner pools
+(rogue + in-Docker-dind) pull the image directly from `ghcr.io` with
+no authentication required. The bake workflow flips the package to
+public after every push so this stays the case.
 
 ## What it contains
 
@@ -35,15 +42,34 @@ If a specific workflow needs a pre-warmed cache, do it in a workflow-side
 
 ## Usage in `~/infra/brotal-runners/`
 
-Pin a specific tag in the `.env` file of each runner stack:
+### 1. Authenticate the runner host against `ghcr.io`
+
+The runner pools live on Brotal-LLC infrastructure. The host doing
+`docker pull` needs a Brotal-LLC PAT with `read:packages` scope. Log in
+once on each runner host:
+
+```bash
+echo "$BROL_GHCR_PAT" | docker login ghcr.io -u pixu-bd --password-stdin
+```
+
+`BROL_GHCR_PAT` is a Brotal-LLC PAT stored in `~/infra/secrets/`. It only
+needs `read:packages` — not `repo`, not `admin:org`.
+
+### 2. Pin a specific tag in the runner stack's `.env`
 
 ```env
 # ~/infra/brotal-runners/inf-runner-1/.env
 BROL_RUNNER_IMAGE=ghcr.io/brotal-llc/runner-base:2026-06-11-1
 ```
 
-Then `docker compose up -d --force-recreate` in that stack. The runner
-listener will pull the new image on recreate.
+### 3. Recreate the runner
+
+```bash
+cd ~/infra/brotal-runners/inf-runner-1
+docker compose up -d --force-recreate
+```
+
+The runner listener will pull the new image on recreate.
 
 ## Usage in CI workflows
 
