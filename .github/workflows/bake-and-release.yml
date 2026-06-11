@@ -121,6 +121,41 @@ jobs:
           provenance: false
           sbom: false
 
+      - name: Set package visibility to public
+        # Newly-created GHCR packages are private by default. We want
+        # this one public so the runner pools can pull it without auth.
+        # The PATCH endpoint requires `packages: write` (which this
+        # workflow has via permissions:) and idempotent — re-running
+        # it is a no-op.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # Use the packages REST API to flip the visibility. Capture
+          # the response so we can log it; exit 0 even if the package
+          # is already public (some PATCH paths return 404 when the
+          # state is already at the target).
+          HTTP_CODE="$(gh api \
+            -X PATCH \
+            /orgs/Brotal-LLC/packages/container/runner-base \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --input - <<< '{"visibility":"public"}' \
+            --silent \
+            -o /tmp/visibility-resp.json \
+            -w "%{http_code}" || echo "")"
+          if [ "${HTTP_CODE}" = "200" ]; then
+            VIS="$(jq -r .visibility /tmp/visibility-resp.json)"
+            echo "Package visibility: ${VIS}"
+          else
+            # Visibility flip is best-effort. The push itself succeeded
+            # — if the consumer needs to pull from a private package,
+            # they can authenticate. Log the failure but don't fail
+            # the workflow.
+            echo "::warning::Could not set package visibility via PATCH (HTTP ${HTTP_CODE:-unknown})." \
+                 "Package may need manual flip to public on https://github.com/orgs/Brotal-LLC/packages/container/runner-base/settings"
+          fi
+
       - name: Tag the bake in git
         # Tag the commit on master with runner-base-v<tag> so consumers
         # can pin to a specific image SHA. Skipped for dispatch bakes
