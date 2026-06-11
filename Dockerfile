@@ -135,6 +135,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -----------------------------------------------------------------------------
 # Layer 6: CLI tools. Each tool is downloaded to /usr/local/bin so they're
 # on PATH. Versions are pinned via build args so we control drift.
+#
+# Multi-arch note: the curl URLs below point at *x86_64/amd64* binaries
+# because the Brotal-LLC runner fleet (rogue + in-Docker-dind) is all
+# x86_64. Cross-compiling to arm64 via QEMU emulation would try to RUN
+# these x86_64 binaries inside an emulated arm64 rootfs and fail with
+# "qemu: uncaught target signal 11". If/when an arm64 runner comes
+# online, the urls can be parameterized on $TARGETARCH or split into
+# per-arch RUN blocks.
 # -----------------------------------------------------------------------------
 ARG HADOLINT_VERSION=2.12.0
 ARG ACTIONLINT_VERSION=1.7.12

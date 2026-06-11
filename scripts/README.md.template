@@ -71,6 +71,6 @@ etc. — the binaries are on `/usr/local/bin` in the image.
 ## Bake locally
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 \
+docker buildx build --platform linux/amd64 \
   -t brotal/runner-base:dev --load .
 ```

@@ -10,9 +10,13 @@
 #   - The exact tag from the git tag / dispatch input (e.g. 2026-06-11-1)
 #   - `latest` (rolling pointer, updated on every successful bake)
 #
-# Multi-arch: linux/amd64 + linux/arm64. The arm64 build is slower (~12
-# min) because BuildKit cross-compiles dotnet + node, but it lets the
-# same image run on Apple Silicon / Graviton hosts without rebuilding.
+# Multi-arch: linux/amd64 ONLY. Brotal-LLC's runner fleet (rogue host
+# + in-Docker-dind) is all x86_64; the CLI tools (hadolint, actionlint,
+# trufflehog) ship as x86_64 binaries. Cross-compiling to arm64 via
+# QEMU would try to RUN those x86_64 binaries inside an emulated arm64
+# rootfs and fail with "qemu: uncaught target signal 11". Re-add
+# linux/arm64 when/if an arm64 runner is provisioned and the tools are
+# split into per-arch RUN blocks (or a build-arg for $TARGETARCH).
 #
 # Build cache: GitHub-native cache backend (type=gha,mode=max) so
 # successive bakes reuse layers from the prior bake. Cuts cold bake
@@ -102,7 +106,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}
@@ -180,6 +184,6 @@ jobs:
             echo
             echo "- Image: \`ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}\`"
             echo "- Also tagged: \`latest\`"
-            echo "- Platforms: linux/amd64, linux/arm64"
+            echo "- Platforms: linux/amd64"
             echo "- Contents: tools only (dotnet/node/python/uv/hadolint/actionlint/trufflehog/jq/psql/git), no repo caches"
           } >> "$GITHUB_STEP_SUMMARY"
