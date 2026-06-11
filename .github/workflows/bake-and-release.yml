@@ -1,0 +1,204 @@
+# =============================================================================
+# Bake and release the runner-base image
+# =============================================================================
+# Triggered on:
+#   - Tag push matching runner-base-vYYYY-MM-DD-N
+#   - workflow_dispatch (manual button in the Actions UI)
+#
+# Pushes the resulting image to ghcr.io/brotal-llc/runner-base with two
+# tags:
+#   - The exact tag from the git tag / dispatch input (e.g. 2026-06-11-1)
+#   - `latest` (rolling pointer, updated on every successful bake)
+#
+# Multi-arch: linux/amd64 + linux/arm64. The arm64 build is slower (~12
+# min) because BuildKit cross-compiles dotnet + node, but it lets the
+# same image run on Apple Silicon / Graviton hosts without rebuilding.
+#
+# Build cache: GitHub-native cache backend (type=gha,mode=max) so
+# successive bakes reuse layers from the prior bake. Cuts cold bake
+# from ~25 min to ~6 min.
+#
+# Why NOT use Brotal-LLC self-hosted runners here:
+#   The first bake of every new image SHA happens on a fresh runner that
+#   doesn't have the runner-base image yet (chicken-and-egg). After the
+#   first bake lands, the org can OPTIONALLY switch this workflow to
+#   runs-on: [self-hosted, linux, x64] once all self-hosted runners
+#   have pulled the new tag. For now: ubuntu-latest.
+# =============================================================================
+
+name: Bake and release runner-base
+
+on:
+  push:
+    tags:
+      - 'runner-base-v*'
+  workflow_dispatch:
+    inputs:
+      tag_suffix:
+        description: "Tag suffix (e.g. 2026-06-11-1). Auto-generated to today's date + build counter if empty."
+        required: false
+        type: string
+      warm_ref:
+        description: "Git ref to clone for cache warming (sv/chokidar/ilma). Default HEAD of each repo's default branch."
+        required: false
+        type: string
+        default: "HEAD"
+      warm_sv:
+        description: "Warm NuGet cache for sv"
+        type: boolean
+        default: true
+      warm_chokidar:
+        description: "Warm NuGet cache for chokidar"
+        type: boolean
+        default: true
+      warm_ilma:
+        description: "Warm uv cache for ilma"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # so we can create a release notes file
+  packages: write   # so we can push to ghcr.io/brotal-llc
+
+concurrency:
+  group: runner-base-bake
+  cancel-in-progress: false   # never cancel an in-flight bake — we want every tag to land
+
+jobs:
+  bake:
+    name: Build & push runner-base:${{ inputs.tag_suffix || 'auto' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve image tag
+        id: tag
+        # If triggered by tag push, use the tag name verbatim (strip the
+        # runner-base-v prefix). If triggered by dispatch, default to
+        # today's UTC date + a build counter based on existing tags.
+        # The build counter avoids overwriting `:latest` mid-day when
+        # you re-bake with a workflow_dispatch.
+        run: |
+          set -eu
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RAW="${GITHUB_REF_NAME}"
+            TAG="${RAW#runner-base-v}"
+          else
+            # Dispatch: query existing tags and increment
+            TODAY="$(date -u +%Y-%m-%d)"
+            # shellcheck disable=SC2086
+            EXISTING="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              /repos/Brotal-LLC/runner-base/git/matching-refs/tags/runner-base-v"${TODAY}"- \
+              --jq '[.[] | .ref | capture("runner-base-v(?<n>\\d+)$") | .n] | max // "0"')"
+            N=$((EXISTING + 1))
+            TAG="${TODAY}-${N}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: ${TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        # packages: write permission is enough for org-owned GHCR packages
+        # — no PAT needed.
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}
+            ghcr.io/brotal-llc/runner-base:latest
+          labels: |
+            org.opencontainers.image.title=Brotal-LLC runner-base
+            org.opencontainers.image.source=https://github.com/Brotal-LLC/runner-base
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+          cache-from: type=gha,scope=runner-base-build
+          cache-to: type=gha,scope=runner-base-build,mode=max
+          build-args: |
+            WARM_REF=${{ inputs.warm_ref || 'HEAD' }}
+            WARM_SV=${{ inputs.warm_sv && '1' || '0' }}
+            WARM_CHOKIDAR=${{ inputs.warm_chokidar && '1' || '0' }}
+            WARM_ILMA=${{ inputs.warm_ilma && '1' || '0' }}
+          provenance: false
+          sbom: false
+
+      - name: Tag the bake in git
+        # Tag the commit on master with runner-base-v<tag> so consumers
+        # can pin to a specific image SHA. Skipped for dispatch bakes
+        # because they shouldn't pollute the tag namespace.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "runner-base-v${{ steps.tag.outputs.tag }}" "${{ github.sha }}"
+          git push origin "runner-base-v${{ steps.tag.outputs.tag }}" --force
+
+      - name: Smoke-test the pushed image
+        # Pull the image we just pushed, run the same smoke check the
+        # Dockerfile runs at the end of its build. Catches a pushed-but-
+        # broken image before consumers pull it.
+        run: |
+          docker pull --platform linux/amd64 "ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}"
+          docker run --rm --platform linux/amd64 \
+            "ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}" \
+            bash -c 'set -eux; \
+              dotnet --version; \
+              node --version; \
+              npm --version; \
+              python3 --version; \
+              uv --version; \
+              hadolint --version; \
+              actionlint -version; \
+              trufflehog --version; \
+              jq --version; \
+              psql --version; \
+              echo "=== smoke check OK ==="'
+
+      - name: Update README badge
+        # Rewrites the top-of-README badge so consumers see the latest
+        # tag without checking the registry. Idempotent — runs every bake.
+        # Uses a template file (scripts/README.md.template) instead of
+        # an inlined heredoc because GitHub Actions YAML chokes on the
+        # colons and braces in the badge URLs when they're embedded
+        # in `run: |` blocks.
+        env:
+          BAKED_TAG: ${{ steps.tag.outputs.tag }}
+          BAKED_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          sed \
+            -e "s|__BAKED_TAG__|${BAKED_TAG}|g" \
+            -e "s|__BAKED_SHA_SHORT__|${BAKED_SHA:0:7}|g" \
+            scripts/README.md.template > README.md
+          git add README.md
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "bake: ${BAKED_TAG}"
+            git push
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### runner-base bake complete"
+            echo
+            echo "- Image: \`ghcr.io/brotal-llc/runner-base:${{ steps.tag.outputs.tag }}\`"
+            echo "- Also tagged: \`latest\`"
+            echo "- Platforms: linux/amd64, linux/arm64"
+            echo "- Warmed: sv=${{ inputs.warm_sv }}, chokidar=${{ inputs.warm_chokidar }}, ilma=${{ inputs.warm_ilma }}"
+            echo "- Warm ref: \`${{ inputs.warm_ref || 'HEAD' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

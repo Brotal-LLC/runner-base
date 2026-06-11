@@ -1,0 +1,7 @@
+.git
+.github
+README.md
+LICENSE
+scripts
+*.bak
+.DS_Store
