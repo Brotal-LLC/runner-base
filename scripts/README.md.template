@@ -9,6 +9,12 @@ caching (NuGet/npm/uv) is the consumer's responsibility.
 
 **Latest published tag:** `__BAKED_TAG__`  (commit `__BAKED_SHA_SHORT__`)
 
+## Visibility
+
+**Both the repo and the GHCR image are private** (Brotal-LLC org default).
+Only Brotal-LLC members and the runner pools can pull the image. To pull
+from a new host you need to authenticate against `ghcr.io` first.
+
 ## What it contains
 
 - `dotnet` SDK 10.0.x
@@ -35,15 +41,34 @@ If a specific workflow needs a pre-warmed cache, do it in a workflow-side
 
 ## Usage in `~/infra/brotal-runners/`
 
-Pin a specific tag in the `.env` file of each runner stack:
+### 1. Authenticate the runner host against `ghcr.io`
+
+The runner pools live on Brotal-LLC infrastructure. The host doing
+`docker pull` needs a Brotal-LLC PAT with `read:packages` scope. Log in
+once on each runner host:
+
+```bash
+echo "$BROL_GHCR_PAT" | docker login ghcr.io -u pixu-bd --password-stdin
+```
+
+`BROL_GHCR_PAT` is a Brotal-LLC PAT stored in `~/infra/secrets/`. It only
+needs `read:packages` — not `repo`, not `admin:org`.
+
+### 2. Pin a specific tag in the runner stack's `.env`
 
 ```env
 # ~/infra/brotal-runners/inf-runner-1/.env
 BROL_RUNNER_IMAGE=ghcr.io/brotal-llc/runner-base:__BAKED_TAG__
 ```
 
-Then `docker compose up -d --force-recreate` in that stack. The runner
-listener will pull the new image on recreate.
+### 3. Recreate the runner
+
+```bash
+cd ~/infra/brotal-runners/inf-runner-1
+docker compose up -d --force-recreate
+```
+
+The runner listener will pull the new image on recreate.
 
 ## Usage in CI workflows
 
