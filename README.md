@@ -4,9 +4,10 @@
 [![image](https://img.shields.io/badge/ghcr.io-brotal--llc%2Frunner--base-blue)](https://github.com/Brotal-LLC/runner-base/pkgs/container/runner-base)
 
 Self-hosted GitHub Actions runner base image with the full Brotal-LLC dev
-toolchain pre-installed and the NuGet/npm/uv global caches pre-warmed.
+toolchain pre-installed. **Tools only — no repo caches.** Workflow-side
+caching (NuGet/npm/uv) is the consumer's responsibility.
 
-**Latest published tag:** `__BAKED_TAG__`  (commit `__BAKED_SHA_SHORT__`)
+**Latest published tag:** `2026-06-11-1`  (commit `6f4604c`)
 
 ## What it contains
 
@@ -15,7 +16,22 @@ toolchain pre-installed and the NuGet/npm/uv global caches pre-warmed.
 - `python` 3.11 + `uv`
 - `hadolint`, `actionlint`, `trufflehog`, `jq`, `psql`
 - Playwright system deps (Chromium runtime)
-- Pre-warmed global caches for **sv** (NuGet + npm), **chokidar** (NuGet + npm), and **ilma** (uv)
+
+## Why no pre-warmed caches?
+
+Pre-warming NuGet/npm/uv for sv/chokidar/ilma inside the image was tried
+and rejected:
+
+1. The `actions/setup-dotnet@v5` `cache: true` already caches NuGet across
+   runs at the workflow level, so an image-baked cache is redundant.
+2. Image-baked caches go stale the moment any of the three repos' lockfiles
+   change — a 2-3 day freshness ceiling in practice.
+3. The bake itself has to cross-compile 3 repos' restores for `linux/arm64`
+   too, adding 10-15 min to every bake with no benefit when the caches
+   aren't actually fresh.
+
+If a specific workflow needs a pre-warmed cache, do it in a workflow-side
+`actions/cache` step. The image stays neutral and simple.
 
 ## Usage in `~/infra/brotal-runners/`
 
@@ -23,7 +39,7 @@ Pin a specific tag in the `.env` file of each runner stack:
 
 ```env
 # ~/infra/brotal-runners/inf-runner-1/.env
-BROL_RUNNER_IMAGE=ghcr.io/brotal-llc/runner-base:__BAKED_TAG__
+BROL_RUNNER_IMAGE=ghcr.io/brotal-llc/runner-base:2026-06-11-1
 ```
 
 Then `docker compose up -d --force-recreate` in that stack. The runner
@@ -55,6 +71,6 @@ etc. — the binaries are on `/usr/local/bin` in the image.
 ## Bake locally
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 \
+docker buildx build --platform linux/amd64 \
   -t brotal/runner-base:dev --load .
 ```
