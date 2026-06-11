@@ -67,6 +67,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpango-1.0-0 libcairo2 libasound2t64 libxshmfence1 \
         # Postgres client + dnsutils for resolve-host steps
         postgresql-client dnsutils iproute2 \
+        # bc — POSIX `bc` is the default float-math tool in lots of CI
+        # scripts (incl. sv.yml's Coverage Gate). 2026-06-11 incident:
+        # the gate silently failed with "bc: command not found" because
+        # it wasn't in the original apt set, and exit code 127 looked
+        # identical to "coverage < threshold" in our dashboards.
+        bc \
         # Useful for debugging CI failures from inside the runner
         less vim-tiny htop \
     && rm -rf /var/lib/apt/lists/* \
@@ -186,6 +192,7 @@ RUN mkdir -p /github/workspace \
     && jq --version \
     && psql --version \
     && git --version \
+    && bc --version \
     && echo "=== runner-base smoke check PASSED ==="
 
 # Default to the runner user — matches the actions-runner image's
