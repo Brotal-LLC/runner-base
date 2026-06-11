@@ -79,6 +79,10 @@ jobs:
         # today's UTC date + a build counter based on existing tags.
         # The build counter avoids overwriting `:latest` mid-day when
         # you re-bake with a workflow_dispatch.
+        # GH_TOKEN is set explicitly because `gh api` doesn't fall back
+        # to GITHUB_TOKEN — it only reads GH_TOKEN/GH_HOST env vars.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
