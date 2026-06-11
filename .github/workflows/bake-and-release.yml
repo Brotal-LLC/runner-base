@@ -125,35 +125,40 @@ jobs:
         # Newly-created GHCR packages are private by default. We want
         # this one public so the runner pools can pull it without auth.
         # The PATCH endpoint requires `packages: write` (which this
-        # workflow has via permissions:) and idempotent — re-running
-        # it is a no-op.
+        # workflow has via permissions:) and is idempotent — re-running
+        # it is a no-op. Note: the org-level PATCH endpoint can return
+        # 404 on newly-created packages for ~30s while GHCR indexes
+        # them; we retry once with backoff to handle that.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          # Use the packages REST API to flip the visibility. Capture
-          # the response so we can log it; exit 0 even if the package
-          # is already public (some PATCH paths return 404 when the
-          # state is already at the target).
-          HTTP_CODE="$(gh api \
-            -X PATCH \
-            /orgs/Brotal-LLC/packages/container/runner-base \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            --input - <<< '{"visibility":"public"}' \
-            --silent \
-            -o /tmp/visibility-resp.json \
-            -w "%{http_code}" || echo "")"
+          set +e
+          flip() {
+            gh api \
+              -X PATCH \
+              /orgs/Brotal-LLC/packages/container/runner-base \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -F visibility=public \
+              --silent \
+              -o /tmp/visibility-resp.json \
+              -w "%{http_code}"
+          }
+          HTTP_CODE="$(flip)"
+          RETRIES=0
+          while [ "${HTTP_CODE}" != "200" ] && [ "${RETRIES}" -lt 3 ]; do
+            RETRIES=$((RETRIES + 1))
+            echo "PATCH returned ${HTTP_CODE:-unknown}, retry ${RETRIES}/3 in 15s..."
+            sleep 15
+            HTTP_CODE="$(flip)"
+          done
+          set -e
           if [ "${HTTP_CODE}" = "200" ]; then
             VIS="$(jq -r .visibility /tmp/visibility-resp.json)"
-            echo "Package visibility: ${VIS}"
+            echo "Package visibility flipped to: ${VIS}"
           else
-            # Visibility flip is best-effort. The push itself succeeded
-            # — if the consumer needs to pull from a private package,
-            # they can authenticate. Log the failure but don't fail
-            # the workflow.
-            echo "::warning::Could not set package visibility via PATCH (HTTP ${HTTP_CODE:-unknown})." \
-                 "Package may need manual flip to public on https://github.com/orgs/Brotal-LLC/packages/container/runner-base/settings"
+            echo "::warning::Could not set package visibility via PATCH (HTTP ${HTTP_CODE:-unknown} after ${RETRIES} retries)." \
+                 "Manual flip: https://github.com/orgs/Brotal-LLC/packages/container/runner-base/settings"
           fi
 
       - name: Tag the bake in git
