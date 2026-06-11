@@ -134,12 +134,14 @@ jobs:
         run: |
           set +e
           flip() {
+            # `-f` is the older, more portable form of `-F` (raw-field).
+            # The hosted GH runner's `gh` may not support -F.
             gh api \
-              -X PATCH \
+              --method PATCH \
               /orgs/Brotal-LLC/packages/container/runner-base \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              -F visibility=public \
+              -f visibility=public \
               --silent \
               -o /tmp/visibility-resp.json \
               -w "%{http_code}"
