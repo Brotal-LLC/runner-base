@@ -136,6 +136,8 @@ jobs:
           flip() {
             # `-f` is the older, more portable form of `-F` (raw-field).
             # The hosted GH runner's `gh` may not support -F.
+            # `--output` is the long form of `-o` (older `gh` may not
+            # accept -o as a shorthand).
             gh api \
               --method PATCH \
               /orgs/Brotal-LLC/packages/container/runner-base \
@@ -143,7 +145,7 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               -f visibility=public \
               --silent \
-              -o /tmp/visibility-resp.json \
+              --output /tmp/visibility-resp.json \
               -w "%{http_code}"
           }
           HTTP_CODE="$(flip)"
