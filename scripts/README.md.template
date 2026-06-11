@@ -11,9 +11,10 @@ caching (NuGet/npm/uv) is the consumer's responsibility.
 
 ## Visibility
 
-**Both the repo and the GHCR image are private** (Brotal-LLC org default).
-Only Brotal-LLC members and the runner pools can pull the image. To pull
-from a new host you need to authenticate against `ghcr.io` first.
+**Both the repo and the GHCR image are public.** The runner pools
+(rogue + in-Docker-dind) pull the image directly from `ghcr.io` with
+no authentication required. The bake workflow flips the package to
+public after every push so this stays the case.
 
 ## What it contains
 

@@ -121,6 +121,49 @@ jobs:
           provenance: false
           sbom: false
 
+      - name: Set package visibility to public
+        # Newly-created GHCR packages default to private. The runner
+        # pools (rogue + in-Docker-dind) need to pull this image
+        # without authenticating the host, so flip it to public after
+        # every push. Idempotent — re-running is a no-op.
+        #
+        # The endpoint can 404 for ~30s after first push while GHCR
+        # indexes the package, so we retry with backoff. Older `gh`
+        # versions on the GH runner don't accept `-o` or `-F` shorthand
+        # flags, so we use the long forms (`--output`, `-f`).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          flip() {
+            printf '%s' '{"visibility":"public"}' > /tmp/visibility-payload.json
+            gh api \
+              --method PATCH \
+              /orgs/Brotal-LLC/packages/container/runner-base \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --input /tmp/visibility-payload.json \
+              --silent \
+              --output /tmp/visibility-resp.json \
+              -w "%{http_code}"
+          }
+          HTTP_CODE="$(flip)"
+          RETRIES=0
+          while [ "${HTTP_CODE}" != "200" ] && [ "${RETRIES}" -lt 3 ]; do
+            RETRIES=$((RETRIES + 1))
+            echo "PATCH returned ${HTTP_CODE:-unknown}, retry ${RETRIES}/3 in 15s..."
+            sleep 15
+            HTTP_CODE="$(flip)"
+          done
+          set -e
+          if [ "${HTTP_CODE}" = "200" ]; then
+            VIS="$(jq -r .visibility /tmp/visibility-resp.json)"
+            echo "Package visibility flipped to: ${VIS}"
+          else
+            echo "::warning::Could not set package visibility via PATCH (HTTP ${HTTP_CODE:-unknown} after ${RETRIES} retries)." \
+                 "Manual flip: https://github.com/orgs/Brotal-LLC/packages/container/runner-base/settings"
+          fi
+
       - name: Tag the bake in git
         # Tag the commit on master with runner-base-v<tag> so consumers
         # can pin to a specific image SHA. Skipped for dispatch bakes
